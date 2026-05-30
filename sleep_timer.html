@@ -582,11 +582,11 @@ function showPhase(id) {
 }
 
 function showSettings() {
-  showPhase('phase-settings');
+  const settings = document.getElementById('phase-settings');
+  showPhase(settings.classList.contains('active') ? 'phase-setup' : 'phase-settings');
 }
 
 function completeOnboarding() {
-  localStorage.setItem('sleepTimerOnboarded', '1');
   showPhase('phase-setup');
 }
 
@@ -962,11 +962,7 @@ function initDuration() {
 initDuration();
 
 function initOnboarding() {
-  if (localStorage.getItem('sleepTimerOnboarded') === '1') {
-    showPhase('phase-setup');
-  } else {
-    showPhase('phase-onboarding');
-  }
+  showPhase('phase-onboarding');
 }
 
 initOnboarding();
