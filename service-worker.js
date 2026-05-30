@@ -1,6 +1,5 @@
-const CACHE_NAME = 'sleep-timer-v1';
+const CACHE_NAME = 'sleep-timer-v2';
 const ASSETS = [
-  '/sleep_timer/sleep_timer.html',
   '/sleep_timer/manifest.json'
 ];
 
@@ -21,6 +20,15 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  const url = new URL(e.request.url);
+  // HTMLは常にネットワーク優先（古いキャッシュを返さない）
+  if (e.request.mode === 'navigate' || url.pathname.endsWith('.html')) {
+    e.respondWith(
+      fetch(e.request).catch(() => caches.match(e.request))
+    );
+    return;
+  }
+  // その他はキャッシュ優先
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request))
   );
