@@ -316,6 +316,38 @@ let audioCtx, analyser, micStream;
 let stillSecs = 0, lastMotionTime = Date.now();
 let sensitivity = 3;
 let logs = [];
+let wakeLock = null;
+
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) {
+    log('画面ロック維持: 非対応');
+    return;
+  }
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    log('画面ロック維持: ON');
+    wakeLock.addEventListener('release', () => {
+      log('画面ロック: 解除された');
+    });
+    document.addEventListener('visibilitychange', async () => {
+      if (wakeLock !== null && document.visibilityState === 'visible') {
+        try {
+          wakeLock = await navigator.wakeLock.request('screen');
+          log('画面ロック維持: 再取得');
+        } catch(e) {}
+      }
+    });
+  } catch(e) {
+    log('画面ロック維持: 失敗');
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLock) {
+    wakeLock.release();
+    wakeLock = null;
+  }
+}
 
 function log(msg) {
   const t = new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -357,6 +389,7 @@ async function startDetection() {
   detectStart = Date.now();
   showPhase('phase-detect');
   log('センサー起動中...');
+  await requestWakeLock();
 
   // Microphone
   try {
@@ -516,6 +549,7 @@ function cleanup() {
   if (micStream) micStream.getTracks().forEach(t => t.stop());
   if (audioCtx) { try { audioCtx.close(); } catch(e){} }
   window.removeEventListener('devicemotion', onMotion);
+  releaseWakeLock();
 }
 
 function cancelAll() {
