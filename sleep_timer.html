@@ -55,17 +55,6 @@
     cursor: pointer;
   }
   .slider-val { font-size: 14px; font-weight: 500; min-width: 40px; text-align: right; }
-  .time-select-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; }
-  .time-field label { display: block; font-size: 12px; color: #7d8590; margin-bottom: 6px; }
-  .time-field select {
-    width: 100%;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    color: #e6edf3;
-    font-size: 18px;
-    padding: 11px 10px;
-  }
   .last-duration {
     background: #0d1117;
     border: 1px solid #21262d;
@@ -76,6 +65,31 @@
   .last-duration .label { font-size: 11px; color: #7d8590; margin-bottom: 3px; }
   .last-duration .value { font-size: 26px; font-weight: 500; }
   .last-duration .note { font-size: 11px; color: #7d8590; margin-top: 3px; }
+  .timer-entry {
+    text-align: center;
+    font-size: 50px;
+    font-weight: 600;
+    letter-spacing: 0;
+    margin: 6px 0 18px;
+    color: #f0efff;
+  }
+  .timer-entry .unit { font-size: 22px; color: #c7c5d8; margin: 0 4px; }
+  .keypad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .key-btn {
+    aspect-ratio: 1;
+    border: none;
+    border-radius: 50%;
+    background: #252630;
+    color: #f0efff;
+    font-size: 30px;
+    cursor: pointer;
+  }
+  .key-btn:active { background: #343541; transform: scale(0.98); }
+  .key-btn.icon { font-size: 24px; }
 
   .start-btn {
     background: #238636;
@@ -205,37 +219,24 @@
     <div class="card">
       <div class="card-title">起きるまでの時間</div>
       <div class="last-duration">
-        <div class="label">今回の設定</div>
+        <div class="label">前回の設定</div>
         <div class="value" id="duration-summary">30分</div>
         <div class="note" id="last-duration-note">前回の設定を読み込みました</div>
       </div>
-      <div class="time-select-grid">
-        <div class="time-field">
-          <label for="hours-select">時間</label>
-          <select id="hours-select" onchange="onTimeSelect()">
-            <option value="0">0時間</option>
-            <option value="1">1時間</option>
-            <option value="2">2時間</option>
-            <option value="3">3時間</option>
-          </select>
-        </div>
-        <div class="time-field">
-          <label for="minutes-select">分</label>
-          <select id="minutes-select" onchange="onTimeSelect()">
-            <option value="0">0分</option>
-            <option value="5">5分</option>
-            <option value="10">10分</option>
-            <option value="15">15分</option>
-            <option value="20">20分</option>
-            <option value="25">25分</option>
-            <option value="30">30分</option>
-            <option value="35">35分</option>
-            <option value="40">40分</option>
-            <option value="45">45分</option>
-            <option value="50">50分</option>
-            <option value="55">55分</option>
-          </select>
-        </div>
+      <div class="timer-entry" id="duration-entry"><span>0</span><span class="unit">時間</span><span>30</span><span class="unit">分</span></div>
+      <div class="keypad" aria-label="タイマー時間入力">
+        <button class="key-btn" type="button" onclick="pressDurationKey('1')">1</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('2')">2</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('3')">3</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('4')">4</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('5')">5</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('6')">6</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('7')">7</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('8')">8</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('9')">9</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('00')">00</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('0')">0</button>
+        <button class="key-btn icon" type="button" onclick="backspaceDuration()">⌫</button>
       </div>
     </div>
 
@@ -392,6 +393,7 @@ let motionLevel = 0;
 let alarmIv = null;
 let alarmAudioCtx = null;
 let alarmTestTimeout = null;
+let durationDigits = '';
 
 // 改善用の状態
 let calibrating = false;
@@ -469,32 +471,58 @@ function formatDuration(mins) {
 }
 
 function clampDuration(mins) {
-  const rounded = Math.round(mins / 5) * 5;
-  return Math.max(10, Math.min(180, rounded));
+  return Math.max(1, Math.min(180, mins));
+}
+
+function digitsFromMinutes(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return String(h * 100 + m);
+}
+
+function minutesFromDigits(digits) {
+  const n = parseInt(digits || '0', 10);
+  const rawHours = Math.floor(n / 100);
+  const rawMinutes = n % 100;
+  return rawHours * 60 + rawMinutes;
+}
+
+function renderDuration(save) {
+  const rawMins = minutesFromDigits(durationDigits);
+  selMins = rawMins > 0 ? clampDuration(rawMins) : 0;
+  const displayMins = selMins || 0;
+  const hours = Math.floor(displayMins / 60);
+  const minutes = displayMins % 60;
+  document.getElementById('duration-entry').innerHTML =
+    `<span>${hours}</span><span class="unit">時間</span><span>${String(minutes).padStart(2, '0')}</span><span class="unit">分</span>`;
+  document.getElementById('duration-summary').textContent = formatDuration(selMins);
+  if (save && selMins > 0) {
+    document.getElementById('last-duration-note').textContent = 'この設定を保存しました';
+    localStorage.setItem('sleepTimerLastDuration', String(selMins));
+  }
+  enableStart();
 }
 
 function setDuration(mins, save) {
   selMins = clampDuration(mins);
-  const hours = Math.floor(selMins / 60);
-  const minutes = selMins % 60;
-  document.getElementById('hours-select').value = String(hours);
-  document.getElementById('minutes-select').value = String(minutes - (minutes % 5));
-  document.getElementById('duration-summary').textContent = formatDuration(selMins);
-  document.getElementById('last-duration-note').textContent = save ? 'この設定を保存しました' : '前回の設定を読み込みました';
-  if (save) localStorage.setItem('sleepTimerLastDuration', String(selMins));
-  enableStart();
+  durationDigits = digitsFromMinutes(selMins).slice(0, 4);
+  renderDuration(save);
 }
 
-function onTimeSelect() {
-  const hours = parseInt(document.getElementById('hours-select').value, 10);
-  const minutes = parseInt(document.getElementById('minutes-select').value, 10);
-  setDuration(hours * 60 + minutes, true);
+function pressDurationKey(key) {
+  durationDigits = (durationDigits + key).replace(/^0+(?=\d)/, '').slice(0, 4);
+  renderDuration(true);
+}
+
+function backspaceDuration() {
+  durationDigits = durationDigits.slice(0, -1);
+  renderDuration(true);
 }
 
 function enableStart() {
   const btn = document.getElementById('start-btn');
-  btn.disabled = false;
-  btn.textContent = formatDuration(selMins) + 'で開始';
+  btn.disabled = selMins < 1;
+  btn.textContent = selMins < 1 ? '時間を入力して開始' : formatDuration(selMins) + 'で開始';
 }
 
 function showPhase(id) {
