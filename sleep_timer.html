@@ -38,23 +38,6 @@
   }
   .card-title { font-size: 12px; color: #7d8590; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.75rem; }
 
-  .duration-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .dur-btn {
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 10px;
-    padding: 14px 8px;
-    cursor: pointer;
-    text-align: center;
-    transition: all 0.15s;
-    color: #e6edf3;
-  }
-  .dur-btn:hover { border-color: #58a6ff; background: #1c2128; }
-  .dur-btn.selected { border-color: #3fb950; background: #1a2e1a; }
-  .dur-btn .mins { font-size: 20px; font-weight: 500; display: block; }
-  .dur-btn .label { font-size: 11px; color: #7d8590; display: block; margin-top: 2px; }
-  .dur-btn.selected .label { color: #3fb950; }
-
   .slider-row { display: flex; align-items: center; gap: 10px; }
   .slider-row input[type=range] {
     flex: 1;
@@ -72,6 +55,27 @@
     cursor: pointer;
   }
   .slider-val { font-size: 14px; font-weight: 500; min-width: 40px; text-align: right; }
+  .time-select-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; }
+  .time-field label { display: block; font-size: 12px; color: #7d8590; margin-bottom: 6px; }
+  .time-field select {
+    width: 100%;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    color: #e6edf3;
+    font-size: 18px;
+    padding: 11px 10px;
+  }
+  .last-duration {
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .last-duration .label { font-size: 11px; color: #7d8590; margin-bottom: 3px; }
+  .last-duration .value { font-size: 26px; font-weight: 500; }
+  .last-duration .note { font-size: 11px; color: #7d8590; margin-top: 3px; }
 
   .start-btn {
     background: #238636;
@@ -199,29 +203,39 @@
   <!-- Setup -->
   <div class="phase active" id="phase-setup">
     <div class="card">
-      <div class="card-title">昼寝時間を選択</div>
-      <div class="duration-grid">
-        <button class="dur-btn" onclick="selectDur(20,this)">
-          <span class="mins">20分</span><span class="label">パワーナップ</span>
-        </button>
-        <button class="dur-btn" onclick="selectDur(30,this)">
-          <span class="mins">30分</span><span class="label">短め昼寝</span>
-        </button>
-        <button class="dur-btn" onclick="selectDur(60,this)">
-          <span class="mins">60分</span><span class="label">しっかり休む</span>
-        </button>
-        <button class="dur-btn" onclick="selectDur(90,this)">
-          <span class="mins">90分</span><span class="label">睡眠サイクル1回</span>
-        </button>
+      <div class="card-title">起きるまでの時間</div>
+      <div class="last-duration">
+        <div class="label">今回の設定</div>
+        <div class="value" id="duration-summary">30分</div>
+        <div class="note" id="last-duration-note">前回の設定を読み込みました</div>
       </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">カスタム時間</div>
-      <div class="slider-row">
-        <input type="range" id="custom-slider" min="10" max="180" value="45" step="5"
-          oninput="onCustom(this.value)">
-        <span class="slider-val" id="custom-label">45分</span>
+      <div class="time-select-grid">
+        <div class="time-field">
+          <label for="hours-select">時間</label>
+          <select id="hours-select" onchange="onTimeSelect()">
+            <option value="0">0時間</option>
+            <option value="1">1時間</option>
+            <option value="2">2時間</option>
+            <option value="3">3時間</option>
+          </select>
+        </div>
+        <div class="time-field">
+          <label for="minutes-select">分</label>
+          <select id="minutes-select" onchange="onTimeSelect()">
+            <option value="0">0分</option>
+            <option value="5">5分</option>
+            <option value="10">10分</option>
+            <option value="15">15分</option>
+            <option value="20">20分</option>
+            <option value="25">25分</option>
+            <option value="30">30分</option>
+            <option value="35">35分</option>
+            <option value="40">40分</option>
+            <option value="45">45分</option>
+            <option value="50">50分</option>
+            <option value="55">55分</option>
+          </select>
+        </div>
       </div>
     </div>
 
@@ -362,7 +376,7 @@
 </div>
 
 <script>
-let selMins = 0, customMins = 45;
+let selMins = 30;
 let detectStart, sleepStart, timerEnd;
 let detectIv, timerIv;
 let audioCtx, analyser, micStream;
@@ -446,27 +460,40 @@ function updateDetectionMode() {
   if (el) el.textContent = detectionModeLabel();
 }
 
-function selectDur(m, btn) {
-  selMins = m;
-  customMins = m;
-  document.getElementById('custom-slider').value = m;
-  document.getElementById('custom-label').textContent = m + '分';
-  document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('selected'));
-  btn.classList.add('selected');
+function formatDuration(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h > 0 && m > 0) return `${h}時間${m}分`;
+  if (h > 0) return `${h}時間`;
+  return `${m}分`;
+}
+
+function clampDuration(mins) {
+  return Math.max(10, Math.min(180, mins));
+}
+
+function setDuration(mins, save) {
+  selMins = clampDuration(mins);
+  const hours = Math.floor(selMins / 60);
+  const minutes = selMins % 60;
+  document.getElementById('hours-select').value = String(hours);
+  document.getElementById('minutes-select').value = String(minutes - (minutes % 5));
+  document.getElementById('duration-summary').textContent = formatDuration(selMins);
+  document.getElementById('last-duration-note').textContent = save ? 'この設定を保存しました' : '前回の設定を読み込みました';
+  if (save) localStorage.setItem('sleepTimerLastDuration', String(selMins));
   enableStart();
 }
 
-function onCustom(v) {
-  customMins = selMins = parseInt(v);
-  document.getElementById('custom-label').textContent = v + '分';
-  document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('selected'));
-  enableStart();
+function onTimeSelect() {
+  const hours = parseInt(document.getElementById('hours-select').value, 10);
+  const minutes = parseInt(document.getElementById('minutes-select').value, 10);
+  setDuration(hours * 60 + minutes, true);
 }
 
 function enableStart() {
   const btn = document.getElementById('start-btn');
   btn.disabled = false;
-  btn.textContent = selMins + '分タイマーを開始';
+  btn.textContent = formatDuration(selMins) + 'で開始';
 }
 
 function showPhase(id) {
@@ -830,6 +857,13 @@ function cancelAll() {
   document.getElementById('still-fill').style.width = '0%';
   showPhase('phase-setup');
 }
+
+function initDuration() {
+  const saved = parseInt(localStorage.getItem('sleepTimerLastDuration') || '30', 10);
+  setDuration(Number.isFinite(saved) ? saved : 30, false);
+}
+
+initDuration();
 
 // 既存のService Workerを削除（過去に登録されたものをクリーンアップ）
 if ('serviceWorker' in navigator) {
