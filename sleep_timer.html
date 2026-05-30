@@ -222,8 +222,11 @@
     cursor: pointer;
   }
   .small-btn:hover { border-color: #58a6ff; background: #1c2128; }
-  .onboard-title { font-size: 28px; font-weight: 600; margin-bottom: 8px; }
-  .onboard-lead { font-size: 14px; color: #7d8590; line-height: 1.6; }
+  .onboard-hero { min-height: 56vh; display: flex; flex-direction: column; justify-content: center; text-align: center; gap: 18px; }
+  .onboard-icon { font-size: 54px; }
+  .onboard-title { font-size: 30px; font-weight: 600; }
+  .onboard-lead { font-size: 24px; line-height: 1.45; color: #f0efff; }
+  .privacy-note { font-size: 12px; color: #7d8590; line-height: 1.6; text-align: center; }
 </style>
 </head>
 <body>
@@ -240,27 +243,14 @@
 
   <!-- Onboarding -->
   <div class="phase" id="phase-onboarding">
-    <div class="card">
+    <div class="onboard-hero">
+      <div class="onboard-icon">🌙</div>
       <div class="onboard-title">睡眠タイマー</div>
-      <div class="onboard-lead">横になった瞬間ではなく、眠りについたと判定してからタイマーを開始します。</div>
-    </div>
-    <div class="card">
-      <div class="card-title">使う前の確認</div>
-      <div class="detail-list">
-        <div><span>•</span><span>スマホは枕元かベッド脇に置いてください</span></div>
-        <div><span>•</span><span>布団の中に入れず、充電しながら使うのがおすすめです</span></div>
-        <div><span>•</span><span>音楽や動画は止め、普段寝る時の静けさで開始してください</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-title">プライバシー</div>
-      <div class="detail-list">
-        <div><span>•</span><span>マイクは音量の変化だけを端末内で見ます</span></div>
-        <div><span>•</span><span>音声の録音・保存・送信は行いません</span></div>
-        <div><span>•</span><span>動きセンサーは端末の揺れを睡眠判定に使います</span></div>
-      </div>
+      <div class="onboard-lead">眠りについたら<br>タイマーが始まります</div>
+      <div class="privacy-note">マイクは音量だけを見ます。<br>録音・保存・送信は行いません。</div>
     </div>
     <button class="start-btn" type="button" onclick="completeOnboarding()">はじめる</button>
+    <button class="cancel-btn" type="button" onclick="showSettings()">使う前に確認</button>
   </div>
 
   <!-- Setup -->
