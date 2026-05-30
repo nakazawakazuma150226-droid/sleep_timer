@@ -247,7 +247,7 @@
       <div class="onboard-icon">🌙</div>
       <div class="onboard-title">睡眠タイマー</div>
       <div class="onboard-lead">眠りについたら<br>タイマーが始まります</div>
-      <div class="privacy-note">マイクは音量だけを見ます。<br>録音・保存・送信は行いません。</div>
+      <div class="privacy-note">精度のためマイク使用を推奨します。<br>録音・保存・送信は行いません。</div>
     </div>
     <button class="start-btn" type="button" onclick="completeOnboarding()">はじめる</button>
     <button class="cancel-btn" type="button" onclick="showSettings()">使う前に確認</button>
@@ -297,6 +297,21 @@
       </div>
     </div>
     <div class="card">
+      <div class="card-title">設置場所</div>
+      <label class="option-row">
+        <input type="radio" name="placement-mode" value="bedside" checked>
+        <span>枕元・ベッド脇
+          <span class="option-note">音を優先して検知します。端末に体の動きが伝わりにくい置き方です。</span>
+        </span>
+      </label>
+      <label class="option-row" style="margin-top:10px">
+        <input type="radio" name="placement-mode" value="bed">
+        <span>ベッド上
+          <span class="option-note">音と動きを組み合わせて検知します。端末が体の動きを拾える場所に置いてください。</span>
+        </span>
+      </label>
+    </div>
+    <div class="card">
       <div class="card-title">保険設定</div>
       <label class="option-row">
         <input type="checkbox" id="fallback-check" checked>
@@ -315,8 +330,9 @@
     <div class="card">
       <div class="card-title">使い方</div>
       <div class="detail-list">
-        <div><span>•</span><span>枕元かベッド脇に置いてください</span></div>
+        <div><span>•</span><span>枕元・ベッド脇では音を優先し、ベッド上では動きも使います</span></div>
         <div><span>•</span><span>布団の中に入れず、充電しながら使うのがおすすめです</span></div>
+        <div><span>•</span><span>マイクが使えない場合、検知精度は大きく下がります</span></div>
         <div><span>•</span><span>マイクは音量だけを見ます。録音・保存・送信は行いません</span></div>
       </div>
     </div>
@@ -439,11 +455,15 @@ let lastDurationMins = 30;
 let calibrating = false;
 let calibrationSecs = 0;
 let calibrationSamples = [];
+let motionCalibrationSamples = [];
 let baselineAudio = 0;
+let baselineMotion = 0;
 let audioHistory = [];  // 直近30秒の音量平均化用
 let motionHistory = []; // 動きも平均化
 let isAsleep = false;   // 一度睡眠判定したら状態を保持
 let asleepNoiseCount = 0; // 睡眠中の一時的な音カウント
+let sleepScore = 0;
+let sleepStage = 'calibrating';
 
 const CALIBRATION_DURATION = 20; // 環境音計測時間（秒）
 const AUDIO_AVG_WINDOW = 30;     // 音量平均化の窓（秒）
@@ -595,6 +615,11 @@ function isFallbackEnabled() {
   return !el || el.checked;
 }
 
+function getPlacementMode() {
+  const selected = document.querySelector('input[name="placement-mode"]:checked');
+  return selected ? selected.value : 'bedside';
+}
+
 async function startDetection() {
   localStorage.setItem('sleepTimerLastDuration', String(selMins));
   sensitivity = parseInt(document.getElementById('sens-slider').value);
@@ -621,7 +646,7 @@ async function startDetection() {
     audioAvailable = true;
     log('マイク: 許可済み');
   } catch(e) {
-    log('マイク: 不可 (動きのみ使用)');
+    log(getPlacementMode() === 'bed' ? 'マイク: 不可 (動きのみ使用)' : 'マイク: 不可 (保険開始のみ)');
   }
   updateDetectionMode();
 
@@ -676,8 +701,9 @@ function onMotion(e) {
   motionHistory.push(delta);
   if (motionHistory.length > 5) motionHistory.shift();
   motionLevel = motionHistory.reduce((s,v) => s+v, 0) / motionHistory.length;
+  if (calibrating) motionCalibrationSamples.push(delta);
 
-  const threshold = 1.35 - sensitivity * 0.18;
+  const threshold = getMotionThreshold();
   if (motionLevel > threshold) lastMotionTime = Date.now();
   updateDetectionMode();
 }
@@ -685,14 +711,69 @@ function onMotion(e) {
 function getAudioLevel() {
   if (!analyser) return 0;
   const data = new Uint8Array(analyser.frequencyBinCount);
-  analyser.getByteFrequencyData(data);
-  return data.reduce((s,v) => s+v, 0) / data.length;
+  analyser.getByteTimeDomainData(data);
+  const sumSquares = data.reduce((sum, v) => {
+    const centered = (v - 128) / 128;
+    return sum + centered * centered;
+  }, 0);
+  return Math.sqrt(sumSquares / data.length) * 100;
 }
 
 function getQuietAudioThreshold() {
-  const quietRatio = [0, 0.95, 0.9, 0.82, 0.75, 0.68][sensitivity] || 0.82;
-  const absoluteQuiet = 3 + (6 - sensitivity) * 1.5;
+  const quietRatio = [0, 1.05, 0.95, 0.85, 0.75, 0.65][sensitivity] || 0.85;
+  const absoluteQuiet = 1.2 + (6 - sensitivity) * 0.55;
   return Math.max(absoluteQuiet, baselineAudio * quietRatio);
+}
+
+function getMotionThreshold() {
+  const base = Math.max(0.12, baselineMotion * (1.8 - sensitivity * 0.14));
+  const absolute = 1.15 - sensitivity * 0.14;
+  return Math.max(base, absolute);
+}
+
+function median(values) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a,b) => a-b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function updateSleepScore(signals) {
+  const { hasAudio, hasMotion, isQuiet, isMotionless, loudNoise, bigMotion, mode } = signals;
+  let possible = 0;
+  let positive = 0;
+
+  if (hasAudio) {
+    const weight = mode === 'bed' ? 0.65 : 1;
+    possible += weight;
+    if (isQuiet) positive += weight;
+  }
+
+  if (hasMotion) {
+    const weight = mode === 'bed' ? 0.85 : 0.25;
+    possible += weight;
+    if (isMotionless) positive += weight;
+  }
+
+  let delta = -0.5;
+  if (possible > 0) {
+    const confidence = positive / possible;
+    if (confidence >= 0.9) delta = 1;
+    else if (confidence >= 0.55) delta = 0.35;
+    else delta = -1.2;
+  }
+
+  if (loudNoise) delta -= 2.5;
+  if (bigMotion) delta -= mode === 'bed' ? 5 : 1.5;
+
+  const maxScore = MIN_DETECTION_TIME;
+  sleepScore = Math.max(0, Math.min(maxScore, sleepScore + delta));
+  return sleepScore;
+}
+
+function sleepStageLabel() {
+  if (sleepScore >= MIN_DETECTION_TIME * 0.66) return '入眠候補';
+  if (sleepScore >= MIN_DETECTION_TIME * 0.33) return '落ち着き中';
+  return '睡眠検知中';
 }
 
 function updateBars(prefix, value, max) {
@@ -712,12 +793,15 @@ function startMonitor() {
   audioHistory = [];
   motionHistory = [];
   calibrationSamples = [];
+  motionCalibrationSamples = [];
   calibrating = true;
   calibrationSecs = 0;
   isAsleep = false;
   asleepNoiseCount = 0;
+  sleepScore = 0;
+  sleepStage = 'calibrating';
 
-  log('🎤 環境音を計測中... (' + CALIBRATION_DURATION + '秒)');
+  log('🎤 環境音と揺れを計測中... (' + CALIBRATION_DURATION + '秒)');
 
   detectIv = setInterval(() => {
     const audio = getAudioLevel();
@@ -726,7 +810,7 @@ function startMonitor() {
     // バーの表示
     const motionVal = motionAvailable ? Math.min(30, motionLevel * 18) : Math.max(0, 30 - motionAge * 2);
     updateBars('mb', motionVal, 30);
-    updateBars('ab', audio, 60);
+    updateBars('ab', audio, 12);
     updateDetectionMode();
 
     // === キャリブレーションフェーズ ===
@@ -736,16 +820,17 @@ function startMonitor() {
 
       const pct = (calibrationSecs / CALIBRATION_DURATION) * 100;
       document.getElementById('still-fill').style.width = Math.round(pct) + '%';
-      document.getElementById('still-rem').textContent = (CALIBRATION_DURATION - calibrationSecs) + '秒（環境音計測中）';
-      document.getElementById('detect-status').textContent = '🎤 環境音を学習中...';
+      document.getElementById('still-rem').textContent = (CALIBRATION_DURATION - calibrationSecs) + '秒（環境学習中）';
+      document.getElementById('detect-status').textContent = '🎤 環境を学習中...';
       document.getElementById('detect-sub').textContent = 'そのまま静かにしてください';
 
       if (calibrationSecs >= CALIBRATION_DURATION) {
-        // 環境音の中央値を使う（外れ値に強い）
-        const sorted = [...calibrationSamples].sort((a,b) => a-b);
-        baselineAudio = sorted[Math.floor(sorted.length / 2)];
+        // 中央値を使い、瞬間的な音や揺れの外れ値を避ける
+        baselineAudio = median(calibrationSamples);
+        baselineMotion = median(motionCalibrationSamples);
         calibrating = false;
         log('📊 環境音基準: ' + Math.round(baselineAudio));
+        log('📊 揺れ基準: ' + baselineMotion.toFixed(2));
         log('💤 睡眠検知を開始');
         document.getElementById('detect-sub').textContent = '静かになったらタイマーが始まります';
       }
@@ -761,26 +846,34 @@ function startMonitor() {
 
     // 環境音より十分静かな状態を判定（静かな部屋では絶対しきい値も併用）
     const audioThresh = getQuietAudioThreshold();
+    const placementMode = getPlacementMode();
 
-    // 利用できないセンサーは判定から外し、現在の検知モードは画面に表示する
-    const isQuiet = !audioAvailable || avgAudio < audioThresh;
-    const isMotionless = !motionAvailable || motionAge > 10;
-    const isStill = isQuiet && isMotionless;
+    // 利用できるセンサーだけを判定に使い、未取得センサーは睡眠スコアを増やさない
+    const hasAudio = audioAvailable;
+    const hasMotion = motionAvailable;
+    const hasMotionForScore = hasMotion && (placementMode === 'bed' || hasAudio);
+    const isQuiet = hasAudio && avgAudio < audioThresh;
+    const motionThresh = getMotionThreshold();
+    const isMotionless = hasMotion && motionAge > 10 && motionLevel < motionThresh;
+    const loudNoise = hasAudio && (audio > audioThresh * 2.5 || avgAudio > audioThresh * 1.8);
+    const bigMotion = hasMotion && motionLevel > motionThresh * 2.2;
+    const score = updateSleepScore({
+      hasAudio,
+      hasMotion: hasMotionForScore,
+      isQuiet,
+      isMotionless,
+      loudNoise,
+      bigMotion,
+      mode: placementMode
+    });
+    sleepStage = sleepStageLabel();
 
     // === 段階的判定 ===
     if (!isAsleep) {
-      // まだ睡眠状態に入っていない
-      if (isStill) {
-        stillSecs++;
-      } else {
-        if (stillSecs > 10) {
-          log('動き/音検知 — リセット');
-        }
-        stillSecs = 0;
-      }
+      stillSecs = Math.floor(score);
 
-      // MIN_DETECTION_TIME秒以上の静止で睡眠判定
-      if (stillSecs >= MIN_DETECTION_TIME) {
+      // スコアが十分に積み上がったら睡眠判定
+      if (score >= MIN_DETECTION_TIME) {
         isAsleep = true;
         log('✅ 睡眠開始と判定！');
         startTimer();
@@ -801,11 +894,18 @@ function startMonitor() {
       const m = Math.floor(rem / 60);
       const s = rem % 60;
       document.getElementById('still-rem').textContent = m > 0 ? `${m}分${s}秒` : `${s}秒`;
-      document.getElementById('detect-status').textContent = isStill
-        ? `🟢 静止 ${stillSecs}秒経過`
-        : isMotionless
-          ? '🟡 音を検知中...'
-          : '🟡 動きを検知中...';
+      document.getElementById('detect-status').textContent =
+        (!hasAudio && !hasMotionForScore)
+          ? '🟡 マイクが必要です'
+          : sleepStage === '入眠候補'
+          ? `🟢 ${sleepStage}`
+          : sleepStage === '落ち着き中'
+            ? `🟡 ${sleepStage}`
+            : isQuiet
+              ? '🟡 動きを確認中...'
+              : isMotionless
+                ? '🟡 音を確認中...'
+                : '🟡 睡眠検知中...';
       if (isFallbackEnabled()) {
         const fallbackRem = Math.max(0, FALLBACK_DETECTION_TIME - elapsed);
         const fm = Math.floor(fallbackRem / 60);
