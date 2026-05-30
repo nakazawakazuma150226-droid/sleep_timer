@@ -639,12 +639,14 @@ function cancelAll() {
   showPhase('phase-setup');
 }
 
+// 既存のService Workerを削除（過去に登録されたものをクリーンアップ）
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sleep_timer/service-worker.js')
-      .then(() => console.log('SW登録完了'))
-      .catch(e => console.log('SW登録失敗:', e));
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(reg => reg.unregister());
   });
+  if ('caches' in window) {
+    caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+  }
 }
 </script>
 </body>
