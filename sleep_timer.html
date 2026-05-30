@@ -61,7 +61,13 @@
     border-radius: 8px;
     padding: 12px;
     margin-bottom: 12px;
+    width: 100%;
+    text-align: left;
+    color: inherit;
+    cursor: pointer;
   }
+  .last-duration:hover { border-color: #58a6ff; background: #1c2128; }
+  .last-duration:disabled { cursor: default; opacity: 0.55; }
   .last-duration .label { font-size: 11px; color: #7d8590; margin-bottom: 3px; }
   .last-duration .value { font-size: 26px; font-weight: 500; }
   .last-duration .note { font-size: 11px; color: #7d8590; margin-top: 3px; }
@@ -218,12 +224,12 @@
   <div class="phase active" id="phase-setup">
     <div class="card">
       <div class="card-title">起きるまでの時間</div>
-      <div class="last-duration">
+      <button class="last-duration" id="last-duration-btn" type="button" onclick="applyLastDuration()">
         <div class="label">前回の設定</div>
         <div class="value" id="duration-summary">30分</div>
-        <div class="note" id="last-duration-note">前回の設定を読み込みました</div>
-      </div>
-      <div class="timer-entry" id="duration-entry"><span>0</span><span class="unit">時間</span><span>30</span><span class="unit">分</span></div>
+        <div class="note" id="last-duration-note">タップすると反映します</div>
+      </button>
+      <div class="timer-entry" id="duration-entry"><span>0</span><span class="unit">時間</span><span>00</span><span class="unit">分</span></div>
       <div class="keypad" aria-label="タイマー時間入力">
         <button class="key-btn" type="button" onclick="pressDurationKey('1')">1</button>
         <button class="key-btn" type="button" onclick="pressDurationKey('2')">2</button>
@@ -394,6 +400,7 @@ let alarmIv = null;
 let alarmAudioCtx = null;
 let alarmTestTimeout = null;
 let durationDigits = '';
+let lastDurationMins = 30;
 
 // 改善用の状態
 let calibrating = false;
@@ -495,10 +502,9 @@ function renderDuration(save) {
   const minutes = displayMins % 60;
   document.getElementById('duration-entry').innerHTML =
     `<span>${hours}</span><span class="unit">時間</span><span>${String(minutes).padStart(2, '0')}</span><span class="unit">分</span>`;
-  document.getElementById('duration-summary').textContent = formatDuration(selMins);
   if (save && selMins > 0) {
-    document.getElementById('last-duration-note').textContent = 'この設定を保存しました';
     localStorage.setItem('sleepTimerLastDuration', String(selMins));
+    setLastDuration(selMins);
   }
   enableStart();
 }
@@ -517,6 +523,18 @@ function pressDurationKey(key) {
 function backspaceDuration() {
   durationDigits = durationDigits.slice(0, -1);
   renderDuration(true);
+}
+
+function setLastDuration(mins) {
+  lastDurationMins = clampDuration(mins);
+  document.getElementById('duration-summary').textContent = formatDuration(lastDurationMins);
+  document.getElementById('last-duration-note').textContent = 'タップすると反映します';
+  document.getElementById('last-duration-btn').disabled = false;
+}
+
+function applyLastDuration() {
+  setDuration(lastDurationMins, false);
+  document.getElementById('last-duration-note').textContent = '反映しました';
 }
 
 function enableStart() {
@@ -891,8 +909,12 @@ function cancelAll() {
 function initDuration() {
   const raw = localStorage.getItem('sleepTimerLastDuration');
   const saved = parseInt(raw || '30', 10);
-  setDuration(Number.isFinite(saved) ? saved : 30, false);
-  document.getElementById('last-duration-note').textContent = raw ? '前回の設定を読み込みました' : '初期設定です';
+  setLastDuration(Number.isFinite(saved) ? saved : 30);
+  durationDigits = '';
+  renderDuration(false);
+  if (!raw) {
+    document.getElementById('last-duration-note').textContent = '初期設定です。タップすると反映します';
+  }
 }
 
 initDuration();
