@@ -323,6 +323,20 @@ let sensitivity = 3;
 let logs = [];
 let wakeLock = null;
 
+// 改善用の状態
+let calibrating = false;
+let calibrationSecs = 0;
+let calibrationSamples = [];
+let baselineAudio = 0;
+let audioHistory = [];  // 直近30秒の音量平均化用
+let motionHistory = []; // 動きも平均化
+let isAsleep = false;   // 一度睡眠判定したら状態を保持
+let asleepNoiseCount = 0; // 睡眠中の一時的な音カウント
+
+const CALIBRATION_DURATION = 20; // 環境音計測時間（秒）
+const AUDIO_AVG_WINDOW = 30;     // 音量平均化の窓（秒）
+const MIN_DETECTION_TIME = 180;  // 最低検知時間（秒）— これ未満では睡眠と判定しない
+
 async function requestWakeLock() {
   if (!('wakeLock' in navigator)) {
     log('画面ロック維持: 非対応');
@@ -450,44 +464,104 @@ function updateBars(prefix, value, max) {
 }
 
 function startMonitor() {
-  const stillNeeded = 60 + (5 - sensitivity) * 20;
+  // リセット
   stillSecs = 0;
+  audioHistory = [];
+  motionHistory = [];
+  calibrationSamples = [];
+  calibrating = true;
+  calibrationSecs = 0;
+  isAsleep = false;
+  asleepNoiseCount = 0;
+
+  log('🎤 環境音を計測中... (' + CALIBRATION_DURATION + '秒)');
 
   detectIv = setInterval(() => {
     const audio = getAudioLevel();
     const motionAge = (Date.now() - lastMotionTime) / 1000;
 
+    // バーの表示
     const motionVal = Math.max(0, 30 - motionAge * 2);
     updateBars('mb', motionVal, 30);
     updateBars('ab', audio, 60);
 
-    const audioThresh = 25 - sensitivity * 3;
-    const isStill = motionAge > 10 && audio < audioThresh;
+    // === キャリブレーションフェーズ ===
+    if (calibrating) {
+      calibrationSamples.push(audio);
+      calibrationSecs++;
 
-    if (isStill) {
-      stillSecs++;
-    } else {
-      if (stillSecs > 3) log('動きを検知 — リセット');
-      stillSecs = 0;
+      const pct = (calibrationSecs / CALIBRATION_DURATION) * 100;
+      document.getElementById('still-fill').style.width = Math.round(pct) + '%';
+      document.getElementById('still-rem').textContent = (CALIBRATION_DURATION - calibrationSecs) + '秒（環境音計測中）';
+      document.getElementById('detect-status').textContent = '🎤 環境音を学習中...';
+      document.getElementById('detect-sub').textContent = 'そのまま静かにしてください';
+
+      if (calibrationSecs >= CALIBRATION_DURATION) {
+        // 環境音の中央値を使う（外れ値に強い）
+        const sorted = [...calibrationSamples].sort((a,b) => a-b);
+        baselineAudio = sorted[Math.floor(sorted.length / 2)];
+        calibrating = false;
+        log('📊 環境音基準: ' + Math.round(baselineAudio));
+        log('💤 睡眠検知を開始');
+        document.getElementById('detect-sub').textContent = '静かになったらタイマーが始まります';
+      }
+      return;
     }
 
-    const pct = Math.min(100, (stillSecs / stillNeeded) * 100);
-    document.getElementById('still-fill').style.width = Math.round(pct) + '%';
-    const rem = Math.max(0, stillNeeded - stillSecs);
-    document.getElementById('still-rem').textContent = rem > 0 ? Math.round(rem) + '秒' : '判定中...';
-    document.getElementById('detect-status').textContent = isStill
-      ? `🟢 静止中 ${stillSecs}秒`
-      : '🟡 動きを検知中...';
+    // === 検知フェーズ ===
 
-    if (stillSecs >= stillNeeded) {
-      clearInterval(detectIv);
-      log('✅ 睡眠開始と判定！');
-      startTimer();
+    // 直近の音量を履歴に追加（平均化）
+    audioHistory.push(audio);
+    if (audioHistory.length > AUDIO_AVG_WINDOW) audioHistory.shift();
+    const avgAudio = audioHistory.reduce((s,v) => s+v, 0) / audioHistory.length;
+
+    // 環境音基準+余裕で閾値を決定（感度で調整）
+    // 感度が高いほど閾値が低くなる（小さな音にも反応）
+    const audioMargin = (6 - sensitivity) * 4;  // 感度5なら+4, 感度1なら+20
+    const audioThresh = baselineAudio + audioMargin;
+
+    // 静止判定：平均音量 < 閾値 かつ 動きが10秒以上なし
+    const isQuiet = avgAudio < audioThresh;
+    const isMotionless = motionAge > 10;
+    const isStill = isQuiet && isMotionless;
+
+    // === 段階的判定 ===
+    if (!isAsleep) {
+      // まだ睡眠状態に入っていない
+      if (isStill) {
+        stillSecs++;
+      } else {
+        if (stillSecs > 10) {
+          log('動き/音検知 — リセット');
+        }
+        stillSecs = 0;
+      }
+
+      // MIN_DETECTION_TIME秒以上の静止で睡眠判定
+      if (stillSecs >= MIN_DETECTION_TIME) {
+        isAsleep = true;
+        log('✅ 睡眠開始と判定！');
+        startTimer();
+        return;
+      }
+
+      const pct = Math.min(100, (stillSecs / MIN_DETECTION_TIME) * 100);
+      document.getElementById('still-fill').style.width = Math.round(pct) + '%';
+      const rem = Math.max(0, MIN_DETECTION_TIME - stillSecs);
+      const m = Math.floor(rem / 60);
+      const s = rem % 60;
+      document.getElementById('still-rem').textContent = m > 0 ? `${m}分${s}秒` : `${s}秒`;
+      document.getElementById('detect-status').textContent = isStill
+        ? `🟢 静止 ${stillSecs}秒経過`
+        : isMotionless
+          ? '🟡 音を検知中...'
+          : '🟡 動きを検知中...';
     }
   }, 1000);
 }
 
 function startTimer() {
+  clearInterval(detectIv);
   sleepStart = new Date();
   const detectSecs = Math.round((Date.now() - detectStart) / 1000);
   timerEnd = new Date(sleepStart.getTime() + selMins * 60000);
