@@ -171,6 +171,22 @@
     padding: 10px 12px; font-size: 12px; color: #7d8590;
     display: flex; gap: 8px;
   }
+  .detail-list { display: flex; flex-direction: column; gap: 7px; font-size: 12px; color: #7d8590; }
+  .detail-list div { display: flex; gap: 7px; line-height: 1.45; }
+  .option-row { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; color: #e6edf3; }
+  .option-row input { margin-top: 2px; accent-color: #3fb950; }
+  .option-note { display: block; color: #7d8590; font-size: 11px; margin-top: 2px; line-height: 1.45; }
+  .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .small-btn {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 13px;
+    color: #e6edf3;
+    cursor: pointer;
+  }
+  .small-btn:hover { border-color: #58a6ff; background: #1c2128; }
 </style>
 </head>
 <body>
@@ -212,11 +228,38 @@
     <div class="card">
       <div class="card-title">検知感度</div>
       <div class="slider-row">
-        <span style="font-size:12px;color:#7d8590">鈍感</span>
+        <span style="font-size:12px;color:#7d8590">誤検知しにくい</span>
         <input type="range" id="sens-slider" min="1" max="5" value="3" step="1"
           oninput="document.getElementById('sens-out').textContent=this.value">
-        <span style="font-size:12px;color:#7d8590">敏感</span>
+        <span style="font-size:12px;color:#7d8590">早く検知</span>
         <span class="slider-val" id="sens-out">3</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">使う前の確認</div>
+      <div class="detail-list">
+        <div><span>•</span><span>スマホは枕元かベッド脇に置いてください</span></div>
+        <div><span>•</span><span>布団の中に入れず、充電しながら使うのがおすすめです</span></div>
+        <div><span>•</span><span>音楽や動画は止め、普段寝る時の静けさで開始してください</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">保険設定</div>
+      <label class="option-row">
+        <input type="checkbox" id="fallback-check" checked>
+        <span>30分たっても検知できない時はタイマーを開始
+          <span class="option-note">寝落ち後に動きや環境音で検知が進まない場合の保険です。</span>
+        </span>
+      </label>
+    </div>
+
+    <div class="card">
+      <div class="card-title">アラーム確認</div>
+      <div class="action-row">
+        <button class="small-btn" type="button" onclick="testAlarm()">音を試す</button>
+        <button class="small-btn" type="button" onclick="testVibration()">バイブを試す</button>
       </div>
     </div>
 
@@ -292,6 +335,7 @@
         </div>
       </div>
       <div style="font-size:13px;color:#7d8590;margin-top:8px" id="sleep-time-lbl">眠りについた時刻: —</div>
+      <div style="font-size:13px;color:#7d8590;margin-top:4px" id="alarm-time-lbl">アラーム予定: —</div>
     </div>
     <div class="stats-grid">
       <div class="stat-card">
@@ -333,6 +377,7 @@ let lastAccel = null;
 let motionLevel = 0;
 let alarmIv = null;
 let alarmAudioCtx = null;
+let alarmTestTimeout = null;
 
 // 改善用の状態
 let calibrating = false;
@@ -347,6 +392,7 @@ let asleepNoiseCount = 0; // 睡眠中の一時的な音カウント
 const CALIBRATION_DURATION = 20; // 環境音計測時間（秒）
 const AUDIO_AVG_WINDOW = 30;     // 音量平均化の窓（秒）
 const MIN_DETECTION_TIME = 180;  // 最低検知時間（秒）— これ未満では睡眠と判定しない
+const FALLBACK_DETECTION_TIME = 30 * 60; // 検知できない時の保険（秒）
 
 async function requestWakeLock() {
   if (!('wakeLock' in navigator)) {
@@ -426,6 +472,11 @@ function enableStart() {
 function showPhase(id) {
   document.querySelectorAll('.phase').forEach(p => p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
+}
+
+function isFallbackEnabled() {
+  const el = document.getElementById('fallback-check');
+  return !el || el.checked;
 }
 
 async function startDetection() {
@@ -619,6 +670,14 @@ function startMonitor() {
         return;
       }
 
+      const elapsed = Math.round((Date.now() - detectStart) / 1000);
+      if (isFallbackEnabled() && elapsed >= FALLBACK_DETECTION_TIME) {
+        isAsleep = true;
+        log('⏱ 検知保険でタイマー開始');
+        startTimer();
+        return;
+      }
+
       const pct = Math.min(100, (stillSecs / MIN_DETECTION_TIME) * 100);
       document.getElementById('still-fill').style.width = Math.round(pct) + '%';
       const rem = Math.max(0, MIN_DETECTION_TIME - stillSecs);
@@ -630,6 +689,13 @@ function startMonitor() {
         : isMotionless
           ? '🟡 音を検知中...'
           : '🟡 動きを検知中...';
+      if (isFallbackEnabled()) {
+        const fallbackRem = Math.max(0, FALLBACK_DETECTION_TIME - elapsed);
+        const fm = Math.floor(fallbackRem / 60);
+        const fs = fallbackRem % 60;
+        document.getElementById('detect-sub').textContent =
+          `保険開始まで ${fm}:${String(fs).padStart(2, '0')}`;
+      }
     }
   }, 1000);
 }
@@ -642,6 +708,7 @@ function startTimer() {
   timerEnd = new Date(sleepStart.getTime() + selMins * 60000);
 
   document.getElementById('sleep-time-lbl').textContent = '眠りについた時刻: ' + sleepStart.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('alarm-time-lbl').textContent = 'アラーム予定: ' + timerEnd.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
   document.getElementById('stat-dur').textContent = selMins + '分';
   document.getElementById('stat-detect').textContent = detectSecs < 60 ? detectSecs + '秒' : Math.round(detectSecs/60) + '分';
 
@@ -697,6 +764,21 @@ function playAlarmPattern() {
   } catch(e) {}
 }
 
+function testAlarm() {
+  stopAlarm();
+  playAlarmPattern();
+  if (navigator.vibrate) navigator.vibrate([250,120,250]);
+  alarmTestTimeout = setTimeout(stopAlarm, 3800);
+}
+
+function testVibration() {
+  if (navigator.vibrate) {
+    navigator.vibrate([300,150,300,150,500]);
+  } else {
+    log('バイブ: 非対応');
+  }
+}
+
 function dismissAlarm() {
   stopAlarm();
   cleanup();
@@ -705,6 +787,8 @@ function dismissAlarm() {
 }
 
 function stopAlarm() {
+  clearTimeout(alarmTestTimeout);
+  alarmTestTimeout = null;
   clearInterval(alarmIv);
   alarmIv = null;
   if (alarmAudioCtx) {
