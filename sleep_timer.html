@@ -469,7 +469,8 @@ function formatDuration(mins) {
 }
 
 function clampDuration(mins) {
-  return Math.max(10, Math.min(180, mins));
+  const rounded = Math.round(mins / 5) * 5;
+  return Math.max(10, Math.min(180, rounded));
 }
 
 function setDuration(mins, save) {
@@ -507,6 +508,7 @@ function isFallbackEnabled() {
 }
 
 async function startDetection() {
+  localStorage.setItem('sleepTimerLastDuration', String(selMins));
   sensitivity = parseInt(document.getElementById('sens-slider').value);
   detectStart = Date.now();
   lastMotionTime = Date.now();
@@ -859,8 +861,10 @@ function cancelAll() {
 }
 
 function initDuration() {
-  const saved = parseInt(localStorage.getItem('sleepTimerLastDuration') || '30', 10);
+  const raw = localStorage.getItem('sleepTimerLastDuration');
+  const saved = parseInt(raw || '30', 10);
   setDuration(Number.isFinite(saved) ? saved : 30, false);
+  document.getElementById('last-duration-note').textContent = raw ? '前回の設定を読み込みました' : '初期設定です';
 }
 
 initDuration();
