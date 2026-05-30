@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>睡眠タイマー</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0d1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="睡眠タイマー">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -558,6 +563,14 @@ function cancelAll() {
   document.getElementById('log-box').innerHTML = '<span style="color:#484f58">— ログ —</span>';
   document.getElementById('still-fill').style.width = '0%';
   showPhase('phase-setup');
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sleep_timer/service-worker.js')
+      .then(() => console.log('SW登録完了'))
+      .catch(e => console.log('SW登録失敗:', e));
+  });
 }
 </script>
 </body>
