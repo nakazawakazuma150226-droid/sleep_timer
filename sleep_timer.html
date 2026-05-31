@@ -222,6 +222,16 @@
     cursor: pointer;
   }
   .small-btn:hover { border-color: #58a6ff; background: #1c2128; }
+  .setting-select {
+    width: 100%;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    color: #e6edf3;
+    font-size: 15px;
+    padding: 11px 10px;
+    margin-bottom: 10px;
+  }
   .onboard-hero { min-height: 56vh; display: flex; flex-direction: column; justify-content: center; text-align: center; gap: 18px; }
   .onboard-icon { font-size: 54px; }
   .onboard-title { font-size: 30px; font-weight: 600; }
@@ -322,6 +332,16 @@
     </div>
     <div class="card">
       <div class="card-title">アラーム確認</div>
+      <select class="setting-select" id="alarm-tone" onchange="saveAlarmTone()">
+        <option value="gentle">やさしい</option>
+        <option value="gradual">だんだん強く</option>
+        <option value="chime">チャイム</option>
+        <option value="bell">ベル</option>
+        <option value="standard">標準</option>
+        <option value="digital">デジタル</option>
+        <option value="deep">低音</option>
+        <option value="strong">強め</option>
+      </select>
       <div class="action-row">
         <button class="small-btn" type="button" onclick="testAlarm()">音を試す</button>
         <button class="small-btn" type="button" onclick="testVibration()">バイブを試す</button>
@@ -448,6 +468,8 @@ let motionLevel = 0;
 let alarmIv = null;
 let alarmAudioCtx = null;
 let alarmTestTimeout = null;
+let alarmTone = 'standard';
+let alarmLoopCount = 0;
 let durationDigits = '';
 let lastDurationMins = 30;
 
@@ -613,6 +635,20 @@ function completeOnboarding() {
 function isFallbackEnabled() {
   const el = document.getElementById('fallback-check');
   return !el || el.checked;
+}
+
+function saveAlarmTone() {
+  const el = document.getElementById('alarm-tone');
+  alarmTone = el ? el.value : 'standard';
+  localStorage.setItem('sleepTimerAlarmTone', alarmTone);
+}
+
+function initAlarmTone() {
+  const saved = localStorage.getItem('sleepTimerAlarmTone') || 'standard';
+  const tones = ['gentle', 'gradual', 'chime', 'bell', 'standard', 'digital', 'deep', 'strong'];
+  alarmTone = tones.includes(saved) ? saved : 'standard';
+  const el = document.getElementById('alarm-tone');
+  if (el) el.value = alarmTone;
 }
 
 function getPlacementMode() {
@@ -956,8 +992,9 @@ function triggerAlarm() {
   const slept = Math.round((Date.now() - sleepStart.getTime()) / 60000);
   document.getElementById('alarm-msg').textContent = `${slept}分間眠りました。お疲れさまです！`;
 
+  alarmLoopCount = 0;
   playAlarmPattern();
-  alarmIv = setInterval(playAlarmPattern, 4500);
+  alarmIv = setInterval(playAlarmPattern, getAlarmRepeatMs());
 
   if (navigator.vibrate) navigator.vibrate([500,200,500,200,500,200,1000,300,1000]);
 
@@ -968,24 +1005,109 @@ function playAlarmPattern() {
   try {
     if (!alarmAudioCtx) alarmAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const ac = alarmAudioCtx;
-    [0, 0.5, 1, 1.5, 2, 2.5, 3].forEach(t => {
+    const pattern = getAlarmPattern(alarmLoopCount);
+    alarmLoopCount++;
+    pattern.times.forEach((t, i) => {
       const o = ac.createOscillator();
       const g = ac.createGain();
       o.connect(g); g.connect(ac.destination);
-      o.frequency.value = t % 1 === 0 ? 880 : 660;
-      g.gain.setValueAtTime(0.35, ac.currentTime + t);
-      g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + t + 0.4);
+      o.type = pattern.type;
+      o.frequency.value = pattern.freqs[i % pattern.freqs.length];
+      const gain = pattern.gains ? pattern.gains[i % pattern.gains.length] : pattern.gain;
+      g.gain.setValueAtTime(gain, ac.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + t + pattern.len);
       o.start(ac.currentTime + t);
-      o.stop(ac.currentTime + t + 0.45);
+      o.stop(ac.currentTime + t + pattern.len + 0.05);
     });
   } catch(e) {}
 }
 
+function getAlarmPattern(loop = 0) {
+  if (alarmTone === 'gentle') {
+    return {
+      type: 'sine',
+      freqs: [440, 523, 659, 523],
+      gain: 0.18,
+      len: 0.65,
+      times: [0, 1.0, 2.1, 3.2]
+    };
+  }
+  if (alarmTone === 'gradual') {
+    const gain = Math.min(0.38, 0.12 + loop * 0.04);
+    return {
+      type: 'sine',
+      freqs: [392, 494, 587, 740],
+      gain,
+      len: 0.55,
+      times: [0, 0.9, 1.8, 2.7]
+    };
+  }
+  if (alarmTone === 'chime') {
+    return {
+      type: 'triangle',
+      freqs: [523, 659, 784, 1047],
+      gains: [0.22, 0.2, 0.18, 0.16],
+      len: 0.75,
+      times: [0, 0.65, 1.35, 2.15, 3.05]
+    };
+  }
+  if (alarmTone === 'bell') {
+    return {
+      type: 'triangle',
+      freqs: [988, 740, 988, 659],
+      gain: 0.28,
+      len: 0.5,
+      times: [0, 0.55, 1.2, 1.85, 2.7, 3.35]
+    };
+  }
+  if (alarmTone === 'strong') {
+    return {
+      type: 'square',
+      freqs: [880, 1175],
+      gain: 0.42,
+      len: 0.28,
+      times: [0, 0.35, 0.7, 1.05, 1.55, 1.9, 2.25, 2.6, 3.1, 3.45]
+    };
+  }
+  if (alarmTone === 'digital') {
+    return {
+      type: 'square',
+      freqs: [784, 784, 1047],
+      gain: 0.32,
+      len: 0.18,
+      times: [0, 0.22, 0.7, 0.92, 1.4, 1.62, 2.1, 2.32, 2.8, 3.02]
+    };
+  }
+  if (alarmTone === 'deep') {
+    return {
+      type: 'sawtooth',
+      freqs: [220, 277, 330],
+      gain: 0.3,
+      len: 0.45,
+      times: [0, 0.7, 1.4, 2.1, 2.8, 3.5]
+    };
+  }
+  return {
+    type: 'sine',
+    freqs: [880, 660],
+    gain: 0.35,
+    len: 0.4,
+    times: [0, 0.5, 1, 1.5, 2, 2.5, 3]
+  };
+}
+
+function getAlarmRepeatMs() {
+  if (alarmTone === 'strong' || alarmTone === 'digital') return 4000;
+  if (alarmTone === 'gentle' || alarmTone === 'gradual' || alarmTone === 'chime') return 5200;
+  return 4500;
+}
+
 function testAlarm() {
   stopAlarm();
+  alarmLoopCount = 0;
   playAlarmPattern();
   if (navigator.vibrate) navigator.vibrate([250,120,250]);
-  alarmTestTimeout = setTimeout(stopAlarm, 3800);
+  alarmTestTimeout = setTimeout(stopAlarm, Math.min(getAlarmRepeatMs(), 5200));
 }
 
 function testVibration() {
@@ -1008,6 +1130,7 @@ function stopAlarm() {
   alarmTestTimeout = null;
   clearInterval(alarmIv);
   alarmIv = null;
+  alarmLoopCount = 0;
   if (alarmAudioCtx) {
     try { alarmAudioCtx.close(); } catch(e) {}
     alarmAudioCtx = null;
@@ -1060,6 +1183,7 @@ function initDuration() {
 }
 
 initDuration();
+initAlarmTone();
 
 function initOnboarding() {
   showPhase('phase-onboarding');
