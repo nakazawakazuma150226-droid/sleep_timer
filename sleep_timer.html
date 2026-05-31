@@ -446,6 +446,8 @@
       <div class="alarm-icon">⏰</div>
       <div class="alarm-title">起きる時間です！</div>
       <div class="alarm-sub" id="alarm-msg">よく眠れましたか？</div>
+      <div class="alarm-sub" id="alarm-elapsed-msg" style="margin-top:8px">アラーム開始から 0分</div>
+      <div class="alarm-sub" id="alarm-detect-msg">寝るまで: —</div>
       <button class="dismiss-btn" onclick="dismissAlarm()">止める</button>
     </div>
   </div>
@@ -453,8 +455,8 @@
 
 <script>
 let selMins = 30;
-let detectStart, sleepStart, timerEnd;
-let detectIv, timerIv;
+let detectStart, sleepStart, timerEnd, alarmStart;
+let detectIv, timerIv, alarmElapsedIv;
 let audioCtx, analyser, micStream;
 let stillSecs = 0, lastMotionTime = Date.now();
 let sensitivity = 3;
@@ -990,7 +992,12 @@ function startTimer() {
 function triggerAlarm() {
   stopDetectionSensors();
   const slept = Math.round((Date.now() - sleepStart.getTime()) / 60000);
+  const detectSecs = Math.round((sleepStart.getTime() - detectStart) / 1000);
+  alarmStart = new Date();
   document.getElementById('alarm-msg').textContent = `${slept}分間眠りました。お疲れさまです！`;
+  document.getElementById('alarm-detect-msg').textContent = `寝るまで: ${formatElapsed(detectSecs)}`;
+  updateAlarmElapsed();
+  alarmElapsedIv = setInterval(updateAlarmElapsed, 1000);
 
   alarmLoopCount = 0;
   playAlarmPattern();
@@ -999,6 +1006,24 @@ function triggerAlarm() {
   if (navigator.vibrate) navigator.vibrate([500,200,500,200,500,200,1000,300,1000]);
 
   showPhase('phase-alarm');
+}
+
+function formatElapsed(totalSeconds) {
+  const sec = Math.max(0, Math.floor(totalSeconds));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    return mm > 0 ? `${h}時間${mm}分` : `${h}時間`;
+  }
+  return m > 0 ? `${m}分${s}秒` : `${s}秒`;
+}
+
+function updateAlarmElapsed() {
+  if (!alarmStart) return;
+  const elapsed = Math.round((Date.now() - alarmStart.getTime()) / 1000);
+  document.getElementById('alarm-elapsed-msg').textContent = `アラーム開始から ${formatElapsed(elapsed)}`;
 }
 
 function playAlarmPattern() {
@@ -1130,6 +1155,8 @@ function stopAlarm() {
   alarmTestTimeout = null;
   clearInterval(alarmIv);
   alarmIv = null;
+  clearInterval(alarmElapsedIv);
+  alarmElapsedIv = null;
   alarmLoopCount = 0;
   if (alarmAudioCtx) {
     try { alarmAudioCtx.close(); } catch(e) {}
